@@ -1,6 +1,6 @@
-# AegisSOC
+# TethysGuard
 
-AegisSOC is a cybersecurity monitoring and threat-detection platform built as a practical SOC portfolio project. The current backend receives security events, stores them in SQLite, applies explainable detection rules, creates alerts, and supports a basic analyst workflow.
+TethysGuard is a cybersecurity monitoring and threat-detection platform built as a practical SOC portfolio project. The current backend receives security events, stores them in SQLite, applies explainable detection rules, creates alerts, and supports a basic analyst workflow.
 
 ## Current features
 
@@ -18,7 +18,7 @@ AegisSOC is a cybersecurity monitoring and threat-detection platform built as a 
 ## Project structure
 
 ```text
-AegisSOC/
+TethysGuard/
 |-- Backend/
 |   |-- routes/        # API endpoints
 |   |-- config.py      # Environment-based settings
@@ -77,13 +77,15 @@ The tests use temporary SQLite databases and do not modify the local development
 
 The defaults work for local development. Optional environment variables are documented in `.env.example`:
 
-- `AEGISSOC_APP_NAME`
-- `AEGISSOC_APP_VERSION`
-- `AEGISSOC_DATABASE_PATH`
-- `AEGISSOC_CORS_ORIGINS`
-- `AEGISSOC_MAX_REQUEST_BODY_BYTES`
+- `TETHYSGUARD_APP_NAME`
+- `TETHYSGUARD_APP_VERSION`
+- `TETHYSGUARD_DATABASE_PATH`
+- `TETHYSGUARD_CORS_ORIGINS`
+- `TETHYSGUARD_MAX_REQUEST_BODY_BYTES`
 
 The application reads environment variables directly. It does not automatically load `.env` files yet.
+
+Existing installations retain access to their original database: if `Backend/tethysguard.db` does not exist, the application reuses `Backend/aegissoc.db` when present. New installations use `Backend/tethysguard.db`. Legacy `AEGISSOC_` environment variables remain supported; `TETHYSGUARD_` values take precedence. Set the database path explicitly when both files exist.
 
 ## API endpoints
 
