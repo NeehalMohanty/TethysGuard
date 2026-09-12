@@ -117,7 +117,7 @@ Both list responses include `count`, `total`, `limit`, and `offset` so a future 
 
 ### Phase 1 - Initial SOC backend prototype
 
-Completed before the structured roadmap began:
+Completed:
 
 - FastAPI application and health endpoint
 - SQLite event and alert storage
