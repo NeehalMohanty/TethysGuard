@@ -17,7 +17,7 @@ def test_root_and_health(client):
     health_response = client.get("/health")
 
     assert root_response.status_code == 200
-    assert root_response.json()["name"] == "AegisSOC"
+    assert root_response.json()["name"] == "TethysGuard"
     assert health_response.status_code == 200
     assert health_response.json() == {
         "status": "healthy",

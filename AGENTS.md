@@ -1,4 +1,4 @@
-# AegisSOC Codex Instructions
+# TethysGuard Codex Instructions
 
 ## Communication Style
 
@@ -54,9 +54,9 @@ Before making major architectural changes, explain what is changing and why.
 
 ## Project Priorities
 
-The project is AegisSOC.
+The project is TethysGuard.
 
-AegisSOC is a cybersecurity / SOC platform focused on:
+TethysGuard is a cybersecurity / SOC platform focused on:
 
 - Security event ingestion
 - Threat detection
@@ -98,7 +98,7 @@ Do not spend excessive time on theory if we can learn the concept while implemen
 
 ## Current Project Context
 
-AegisSOC currently includes:
+TethysGuard currently includes:
 
 - FastAPI backend
 - SQLite database
@@ -184,7 +184,7 @@ Do not replace the architecture just because another approach is theoretically b
 
 Build on what already works.
 
-When multiple solutions exist, recommend the simplest solid option for the current stage of AegisSOC.
+When multiple solutions exist, recommend the simplest solid option for the current stage of TethysGuard.
 
 If my idea has a problem, tell me clearly and explain the better approach.
 

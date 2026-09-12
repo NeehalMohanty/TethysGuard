@@ -1,1 +1,1 @@
-"""API route modules for AegisSOC."""
+"""API route modules for TethysGuard."""

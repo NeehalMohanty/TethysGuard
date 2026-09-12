@@ -1,1 +1,1 @@
-"""AegisSOC backend package."""
+"""TethysGuard backend package."""
