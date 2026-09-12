@@ -39,6 +39,29 @@ def create_app(database_path: Path | str | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    @application.middleware("http")
+    async def limit_request_body(request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                request_size = int(content_length)
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Invalid Content-Length header"},
+                )
+            if request_size < 0:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Invalid Content-Length header"},
+                )
+            if request_size > settings.max_request_body_bytes:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body is too large"},
+                )
+        return await call_next(request)
+
     @application.exception_handler(sqlite3.Error)
     async def handle_database_error(
         request: Request,

@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request, status
 
 from Backend.config import settings
+from Backend.database import database_is_available
 from Backend.schemas import HealthResponse, RootResponse
 
 
@@ -17,5 +18,10 @@ def root() -> dict[str, str]:
 
 
 @router.get("/health", response_model=HealthResponse)
-def health() -> dict[str, str]:
-    return {"status": "healthy"}
+def health(request: Request) -> dict[str, str]:
+    if not database_is_available(request.app.state.database_path):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database is unavailable",
+        )
+    return {"status": "healthy", "database": "connected"}

@@ -27,6 +27,9 @@ class Settings:
         os.getenv("AEGISSOC_DATABASE_PATH", str(BACKEND_DIR / "aegissoc.db"))
     )
     cors_origins: tuple[str, ...] = _get_cors_origins()
+    max_request_body_bytes: int = int(
+        os.getenv("AEGISSOC_MAX_REQUEST_BODY_BYTES", "16384")
+    )
 
 
 settings = Settings()

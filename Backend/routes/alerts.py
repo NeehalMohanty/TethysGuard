@@ -1,28 +1,75 @@
-from typing import Any
+from datetime import datetime
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from Backend.schemas import (
     Alert,
+    AlertHistoryListResponse,
     AlertListResponse,
+    AlertStatus,
     AlertStatusUpdate,
     AlertUpdatedResponse,
+    Severity,
 )
 from Backend.services import (
-    ALLOWED_ALERT_STATUSES,
     get_alert_by_id,
+    list_alert_history,
     list_alerts,
     update_alert_status,
 )
+from Backend.routes.utils import validate_date_range
 
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
 
 @router.get("", response_model=AlertListResponse)
-def get_alerts(request: Request) -> dict[str, Any]:
-    alerts = list_alerts(request.app.state.database_path)
-    return {"count": len(alerts), "alerts": alerts}
+def get_alerts(
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    alert_status: Annotated[AlertStatus | None, Query(alias="status")] = None,
+    severity: Severity | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    search: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+    sort_by: Literal["id", "timestamp", "severity", "status", "title"] = "id",
+    sort_order: Literal["asc", "desc"] = "desc",
+) -> dict[str, Any]:
+    validate_date_range(start_time, end_time)
+
+    normalized_search = search.strip() if search else None
+    total, alerts = list_alerts(
+        request.app.state.database_path,
+        limit=limit,
+        offset=offset,
+        alert_status=alert_status,
+        severity=severity,
+        start_time=start_time,
+        end_time=end_time,
+        search=normalized_search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    return {
+        "count": len(alerts),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "alerts": alerts,
+    }
+
+
+@router.get("/{alert_id}/history", response_model=AlertHistoryListResponse)
+def get_alert_history(alert_id: int, request: Request) -> dict[str, Any]:
+    history = list_alert_history(alert_id, request.app.state.database_path)
+    if history is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alert not found",
+        )
+    return {"count": len(history), "history": history}
 
 
 @router.get("/{alert_id}", response_model=Alert)
@@ -42,19 +89,9 @@ def patch_alert_status(
     update: AlertStatusUpdate,
     request: Request,
 ) -> dict[str, Any]:
-    new_status = update.status.lower()
-    if new_status not in ALLOWED_ALERT_STATUSES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Invalid status. "
-                "Allowed values: open, investigating, resolved"
-            ),
-        )
-
     alert = update_alert_status(
         alert_id,
-        new_status,
+        update.status,
         request.app.state.database_path,
     )
     if alert is None:

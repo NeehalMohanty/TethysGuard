@@ -19,7 +19,10 @@ def test_root_and_health(client):
     assert root_response.status_code == 200
     assert root_response.json()["name"] == "AegisSOC"
     assert health_response.status_code == 200
-    assert health_response.json() == {"status": "healthy"}
+    assert health_response.json() == {
+        "status": "healthy",
+        "database": "connected",
+    }
     assert client.get("/api/dashboard/stats").json()["total_alerts"] == 0
 
 
@@ -69,7 +72,7 @@ def test_alert_status_workflow(client):
         f"/api/alerts/{alert_id}",
         json={"status": "closed"},
     )
-    assert invalid_response.status_code == 400
+    assert invalid_response.status_code == 422
 
 
 def test_missing_resources_and_invalid_payloads(client):

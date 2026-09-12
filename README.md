@@ -9,6 +9,9 @@ AegisSOC is a cybersecurity monitoring and threat-detection platform built as a 
 - Rule-based detection for malware, port scans, unauthorized access, and failed logins
 - Automatic alert generation
 - Alert lookup and status updates
+- Alert status audit history
+- Paginated event and alert search
+- Severity, status, source IP, event type, and date filters
 - Dashboard statistics
 - Interactive OpenAPI documentation
 
@@ -78,6 +81,7 @@ The defaults work for local development. Optional environment variables are docu
 - `AEGISSOC_APP_VERSION`
 - `AEGISSOC_DATABASE_PATH`
 - `AEGISSOC_CORS_ORIGINS`
+- `AEGISSOC_MAX_REQUEST_BODY_BYTES`
 
 The application reads environment variables directly. It does not automatically load `.env` files yet.
 
@@ -92,7 +96,22 @@ The application reads environment variables directly. It does not automatically 
 | `GET` | `/api/alerts` | Retrieve alerts |
 | `GET` | `/api/alerts/{alert_id}` | Retrieve one alert |
 | `PATCH` | `/api/alerts/{alert_id}` | Update alert status |
+| `GET` | `/api/alerts/{alert_id}/history` | Retrieve alert status history |
 | `GET` | `/api/dashboard/stats` | Retrieve dashboard statistics |
+
+## Pagination and filters
+
+Event and alert list endpoints return at most 50 records by default and support a maximum page size of 100.
+
+Example requests:
+
+```text
+GET /api/events?limit=25&offset=0&severity=high&sort_by=timestamp&sort_order=desc
+GET /api/events?source_ip=192.0.2.10&event_type=port_scan
+GET /api/alerts?status=open&severity=critical&search=malware
+```
+
+Both list responses include `count`, `total`, `limit`, and `offset` so a future frontend can build page controls correctly.
 
 ## Development status
 
@@ -121,12 +140,23 @@ Completed:
 
 ### Phase 3 - API hardening and data validation
 
-Planned next:
+Completed:
 
-- Strict input validation
+- Strict IP, severity, status, text-length, and payload validation
+- Input normalization and unknown-field rejection
 - Pagination, filtering, sorting, and search
-- Database constraints and indexes
+- Additive database constraints and indexes
 - Database-aware health checks
 - Alert status audit history
 
-Advanced detection, event correlation, realistic telemetry ingestion, and the React dashboard are planned for later phases.
+### Phase 4 - Detection engineering
+
+Planned next:
+
+- Explainable rule IDs and metadata
+- Detection evidence and confidence
+- Risk scoring
+- MITRE ATT&CK mappings
+- Threshold-based failed-login detection
+
+Event correlation, realistic telemetry ingestion, and the React dashboard are planned for later phases.
