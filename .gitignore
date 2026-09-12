@@ -1,13 +1,35 @@
 # Python Virtual Environment
 .venv/
 venv/
+env/
 
-# Python cache
+# Python Cache
 __pycache__/
 *.pyc
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Environment Variables / Secrets
 .env
+.env.*
+!.env.example
+
+# SQLite Database
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Build Artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
 
 # VS Code
 .vscode/
