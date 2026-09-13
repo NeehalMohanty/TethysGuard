@@ -61,6 +61,16 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                     status IN ('open', 'investigating', 'resolved')
                 ),
                 timestamp TEXT NOT NULL,
+                rule_id TEXT,
+                rule_name TEXT,
+                category TEXT,
+                confidence INTEGER,
+                risk_score INTEGER,
+                evidence TEXT,
+                mitre_tactic TEXT,
+                mitre_technique_id TEXT,
+                mitre_technique_name TEXT,
+                detected_at TEXT,
                 FOREIGN KEY(event_id) REFERENCES events(id)
             )
             """
@@ -82,6 +92,28 @@ def initialize_database(database_path: Path | str | None = None) -> None:
             """
         )
 
+        existing_alert_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(alerts)").fetchall()
+        }
+        detection_columns = {
+            "rule_id": "TEXT",
+            "rule_name": "TEXT",
+            "category": "TEXT",
+            "confidence": "INTEGER",
+            "risk_score": "INTEGER",
+            "evidence": "TEXT",
+            "mitre_tactic": "TEXT",
+            "mitre_technique_id": "TEXT",
+            "mitre_technique_name": "TEXT",
+            "detected_at": "TEXT",
+        }
+        for column_name, column_type in detection_columns.items():
+            if column_name not in existing_alert_columns:
+                connection.execute(
+                    f"ALTER TABLE alerts ADD COLUMN {column_name} {column_type}"
+                )
+
         indexes = (
             "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)",
             "CREATE INDEX IF NOT EXISTS idx_events_source_ip ON events(source_ip)",
@@ -91,6 +123,8 @@ def initialize_database(database_path: Path | str | None = None) -> None:
             "CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status)",
             "CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)",
             "CREATE INDEX IF NOT EXISTS idx_alerts_event_id ON alerts(event_id)",
+            "CREATE INDEX IF NOT EXISTS idx_alerts_rule_id ON alerts(rule_id)",
+            "CREATE INDEX IF NOT EXISTS idx_alerts_risk_score ON alerts(risk_score)",
             """
             CREATE INDEX IF NOT EXISTS idx_alert_history_alert_id
             ON alert_status_history(alert_id)

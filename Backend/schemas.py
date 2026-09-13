@@ -61,6 +61,16 @@ class Alert(APIModel):
     severity: Severity
     status: AlertStatus
     timestamp: str
+    rule_id: Optional[str] = None
+    rule_name: Optional[str] = None
+    category: Optional[str] = None
+    confidence: Optional[int] = Field(default=None, ge=0, le=100)
+    risk_score: Optional[int] = Field(default=None, ge=0, le=100)
+    evidence: Optional[dict[str, Any]] = None
+    mitre_tactic: Optional[str] = None
+    mitre_technique_id: Optional[str] = None
+    mitre_technique_name: Optional[str] = None
+    detected_at: Optional[str] = None
 
 
 class AlertStatusUpdate(APIModel):
@@ -96,6 +106,8 @@ class EventCreatedResponse(APIModel):
     event_id: int
     alert_created: bool
     alert_id: Optional[int] = None
+    alerts_created: int = 0
+    alert_ids: list[int] = Field(default_factory=list)
 
 
 class EventListResponse(APIModel):

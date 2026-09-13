@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from Backend.database import get_connection
+from Backend.database import get_connection, initialize_database
 
 
 def post_event(client, **overrides):
@@ -175,6 +175,8 @@ def test_database_constraints_and_indexes_are_enabled(client):
         }
         assert "idx_events_timestamp" in indexes
         assert "idx_alerts_status" in indexes
+        assert "idx_alerts_rule_id" in indexes
+        assert "idx_alerts_risk_score" in indexes
         assert "idx_alert_history_alert_id" in indexes
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     finally:
@@ -190,3 +192,65 @@ def test_health_reports_database_failure(client):
         assert response.json()["detail"] == "Database is unavailable"
     finally:
         client.app.state.database_path = original_path
+
+
+def test_detection_columns_are_added_without_losing_legacy_alerts(tmp_path):
+    database_path = tmp_path / "legacy.db"
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_ip TEXT NOT NULL,
+                destination_ip TEXT,
+                event_type TEXT NOT NULL,
+                username TEXT,
+                severity TEXT NOT NULL,
+                message TEXT,
+                timestamp TEXT NOT NULL
+            );
+            CREATE TABLE alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                status TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY(event_id) REFERENCES events(id)
+            );
+            INSERT INTO events (
+                source_ip, event_type, severity, timestamp
+            ) VALUES (
+                '192.0.2.10', 'port_scan', 'high',
+                '2026-01-01T00:00:00+00:00'
+            );
+            INSERT INTO alerts (
+                event_id, title, description, severity, status, timestamp
+            ) VALUES (
+                1, 'Legacy Alert', 'Created before Phase 4', 'high', 'open',
+                '2026-01-01T00:00:00+00:00'
+            );
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    initialize_database(database_path)
+
+    migrated = get_connection(database_path)
+    try:
+        columns = {
+            row["name"]
+            for row in migrated.execute("PRAGMA table_info(alerts)").fetchall()
+        }
+        assert {"rule_id", "evidence", "risk_score", "detected_at"} <= columns
+        legacy_alert = migrated.execute(
+            "SELECT title, rule_id FROM alerts WHERE id = 1"
+        ).fetchone()
+        assert legacy_alert["title"] == "Legacy Alert"
+        assert legacy_alert["rule_id"] is None
+    finally:
+        migrated.close()
