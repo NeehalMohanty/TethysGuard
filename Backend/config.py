@@ -33,7 +33,7 @@ def _get_cors_origins() -> tuple[str, ...]:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = _environment("TETHYSGUARD_APP_NAME", "TethysGuard API")
-    app_version: str = _environment("TETHYSGUARD_APP_VERSION", "0.3.0")
+    app_version: str = _environment("TETHYSGUARD_APP_VERSION", "0.4.0")
     app_description: str = "Cybersecurity monitoring and threat detection platform"
     database_path: Path = Path(
         _environment("TETHYSGUARD_DATABASE_PATH", str(_default_database_path()))
@@ -41,6 +41,12 @@ class Settings:
     cors_origins: tuple[str, ...] = _get_cors_origins()
     max_request_body_bytes: int = int(
         _environment("TETHYSGUARD_MAX_REQUEST_BODY_BYTES", "16384")
+    )
+    failed_login_threshold: int = int(
+        _environment("TETHYSGUARD_FAILED_LOGIN_THRESHOLD", "5")
+    )
+    failed_login_window_minutes: int = int(
+        _environment("TETHYSGUARD_FAILED_LOGIN_WINDOW_MINUTES", "5")
     )
 
 

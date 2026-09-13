@@ -1,48 +1,92 @@
+from datetime import datetime, timezone
+
 import pytest
 
-from Backend.detection import analyze_event
+from Backend.detection import DetectionContext, analyze_event
 from Backend.schemas import SecurityEventCreate
 
 
-@pytest.mark.parametrize(
-    ("event_type", "severity", "expected_title", "expected_severity"),
-    [
-        ("malware_detected", "low", "Malware Detected", "critical"),
-        ("port_scan", "low", "Possible Port Scan", "high"),
-        (
-            "unauthorized_access",
-            "low",
-            "Unauthorized Access Attempt",
-            "high",
-        ),
-        ("failed_login", "low", "Failed Login Attempt", "medium"),
-        ("unknown_event", "critical", "Critical Security Event", "critical"),
-    ],
-)
-def test_existing_detection_rules(
-    event_type,
-    severity,
-    expected_title,
-    expected_severity,
-):
-    event = SecurityEventCreate(
+DETECTION_TIME = datetime(2026, 9, 13, 12, 0, tzinfo=timezone.utc)
+
+
+def make_event(event_type: str, severity: str = "low") -> SecurityEventCreate:
+    return SecurityEventCreate(
         source_ip="192.0.2.10",
+        destination_ip="198.51.100.20",
         event_type=event_type,
         username="analyst",
         severity=severity,
+        message="Deterministic detection test",
     )
 
-    alert = analyze_event(event)
 
-    assert alert is not None
-    assert alert["title"] == expected_title
-    assert alert["severity"] == expected_severity
+@pytest.mark.parametrize(
+    ("event_type", "rule_id", "expected_severity", "mitre_technique_id"),
+    [
+        ("malware_detected", "TG-MAL-001", "critical", None),
+        ("port_scan", "TG-NET-001", "high", "T1046"),
+        ("unauthorized_access", "TG-IAM-001", "high", None),
+        ("suspicious_login", "TG-AUTH-002", "high", "T1078"),
+        ("impossible_travel", "TG-AUTH-002", "high", "T1078"),
+    ],
+)
+def test_detection_rules_are_explainable(
+    event_type,
+    rule_id,
+    expected_severity,
+    mitre_technique_id,
+):
+    detections = analyze_event(
+        make_event(event_type),
+        DetectionContext(detected_at=DETECTION_TIME),
+    )
+
+    assert len(detections) == 1
+    detection = detections[0]
+    assert detection["rule_id"] == rule_id
+    assert detection["rule_name"]
+    assert detection["description"]
+    assert detection["severity"] == expected_severity
+    assert 0 <= detection["confidence"] <= 100
+    assert 0 <= detection["risk_score"] <= 100
+    assert detection["evidence"]["source_ip"] == "192.0.2.10"
+    assert detection["mitre_technique_id"] == mitre_technique_id
+    assert detection["detected_at"] == "2026-09-13T12:00:00+00:00"
+
+
+def test_one_failed_login_does_not_create_an_alert():
+    assert analyze_event(
+        make_event("failed_login"),
+        DetectionContext(failed_login_count=1, detected_at=DETECTION_TIME),
+    ) == []
+
+
+def test_failed_login_threshold_creates_brute_force_detection():
+    detections = analyze_event(
+        make_event("failed_login"),
+        DetectionContext(failed_login_count=5, detected_at=DETECTION_TIME),
+    )
+
+    assert len(detections) == 1
+    detection = detections[0]
+    assert detection["rule_id"] == "TG-AUTH-001"
+    assert detection["mitre_technique_id"] == "T1110"
+    assert detection["evidence"]["failed_login_count"] == 5
+    assert detection["evidence"]["threshold"] == 5
+    assert detection["evidence"]["window_minutes"] == 5
+
+
+def test_all_applicable_rules_are_returned():
+    detections = analyze_event(
+        make_event("port_scan", severity="critical"),
+        DetectionContext(detected_at=DETECTION_TIME),
+    )
+
+    assert [detection["rule_id"] for detection in detections] == [
+        "TG-NET-001",
+        "TG-GEN-001",
+    ]
 
 
 def test_benign_event_does_not_create_detection():
-    event = SecurityEventCreate(
-        source_ip="192.0.2.10",
-        event_type="normal_activity",
-    )
-
-    assert analyze_event(event) is None
+    assert analyze_event(make_event("normal_activity")) == []

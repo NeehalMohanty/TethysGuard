@@ -1,9 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 from typing import Any
 
 from Backend.database import database_connection
-from Backend.detection import analyze_event
+from Backend.config import settings
+from Backend.detection import DetectionContext, analyze_event
 from Backend.schemas import AlertStatus, SecurityEventCreate, Severity
 
 
@@ -45,11 +47,57 @@ def _like_pattern(value: str) -> str:
     return f"%{escaped}%"
 
 
+def _alert_from_row(row: Any) -> dict[str, Any]:
+    alert = dict(row)
+    serialized_evidence = alert.get("evidence")
+    if serialized_evidence:
+        try:
+            alert["evidence"] = json.loads(serialized_evidence)
+        except (TypeError, json.JSONDecodeError):
+            alert["evidence"] = {"legacy_value": str(serialized_evidence)}
+    else:
+        alert["evidence"] = None
+    return alert
+
+
+def _failed_login_count(
+    connection: Any,
+    event: SecurityEventCreate,
+    timestamp: datetime,
+) -> int:
+    if event.event_type != "failed_login":
+        return 0
+
+    window_start = timestamp - timedelta(
+        minutes=settings.failed_login_window_minutes
+    )
+    username = event.username
+    return int(
+        connection.execute(
+            """
+            SELECT COUNT(*) FROM events
+            WHERE event_type = 'failed_login'
+                AND timestamp >= ?
+                AND timestamp <= ?
+                AND (source_ip = ? OR (? IS NOT NULL AND username = ?))
+            """,
+            (
+                window_start.isoformat(),
+                timestamp.isoformat(),
+                str(event.source_ip),
+                username,
+                username,
+            ),
+        ).fetchone()[0]
+    )
+
+
 def create_security_event(
     event: SecurityEventCreate,
     database_path: Path | str,
 ) -> dict[str, Any]:
-    timestamp = datetime.now(timezone.utc).isoformat()
+    event_time = datetime.now(timezone.utc)
+    timestamp = event_time.isoformat()
 
     with database_connection(database_path) as connection:
         cursor = connection.execute(
@@ -76,10 +124,16 @@ def create_security_event(
             ),
         )
         event_id = int(cursor.lastrowid)
-        detected_alert = analyze_event(event)
-        alert_id = None
+        detection_context = DetectionContext(
+            failed_login_count=_failed_login_count(connection, event, event_time),
+            failed_login_threshold=settings.failed_login_threshold,
+            failed_login_window_minutes=settings.failed_login_window_minutes,
+            detected_at=event_time,
+        )
+        detected_alerts = analyze_event(event, detection_context)
+        alert_ids: list[int] = []
 
-        if detected_alert:
+        for detected_alert in detected_alerts:
             alert_cursor = connection.execute(
                 """
                 INSERT INTO alerts (
@@ -88,9 +142,19 @@ def create_security_event(
                     description,
                     severity,
                     status,
-                    timestamp
+                    timestamp,
+                    rule_id,
+                    rule_name,
+                    category,
+                    confidence,
+                    risk_score,
+                    evidence,
+                    mitre_tactic,
+                    mitre_technique_id,
+                    mitre_technique_name,
+                    detected_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event_id,
@@ -99,15 +163,27 @@ def create_security_event(
                     detected_alert["severity"],
                     AlertStatus.OPEN.value,
                     timestamp,
+                    detected_alert["rule_id"],
+                    detected_alert["rule_name"],
+                    detected_alert["category"],
+                    detected_alert["confidence"],
+                    detected_alert["risk_score"],
+                    json.dumps(detected_alert["evidence"], sort_keys=True),
+                    detected_alert["mitre_tactic"],
+                    detected_alert["mitre_technique_id"],
+                    detected_alert["mitre_technique_name"],
+                    detected_alert["detected_at"],
                 ),
             )
-            alert_id = int(alert_cursor.lastrowid)
+            alert_ids.append(int(alert_cursor.lastrowid))
 
     return {
         "message": "Security event processed",
         "event_id": event_id,
-        "alert_created": alert_id is not None,
-        "alert_id": alert_id,
+        "alert_created": bool(alert_ids),
+        "alert_id": alert_ids[0] if alert_ids else None,
+        "alerts_created": len(alert_ids),
+        "alert_ids": alert_ids,
     }
 
 
@@ -232,7 +308,7 @@ def list_alerts(
             [*parameters, limit, offset],
         ).fetchall()
 
-    return total, [dict(row) for row in rows]
+    return total, [_alert_from_row(row) for row in rows]
 
 
 def get_alert_by_id(
@@ -244,7 +320,7 @@ def get_alert_by_id(
             "SELECT * FROM alerts WHERE id = ?",
             (alert_id,),
         ).fetchone()
-    return dict(row) if row is not None else None
+    return _alert_from_row(row) if row is not None else None
 
 
 def update_alert_status(
@@ -286,7 +362,7 @@ def update_alert_status(
             (alert_id,),
         ).fetchone()
 
-    return dict(updated_alert)
+    return _alert_from_row(updated_alert)
 
 
 def list_alert_history(

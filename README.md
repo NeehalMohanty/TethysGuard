@@ -6,8 +6,11 @@ TethysGuard is a cybersecurity monitoring and threat-detection platform built as
 
 - FastAPI REST API
 - SQLite event and alert storage
-- Rule-based detection for malware, port scans, unauthorized access, and failed logins
+- Explainable detection rules for malware, port scans, unauthorized access, suspicious authentication, and brute-force activity
 - Automatic alert generation
+- Rule IDs, evidence, confidence, risk scores, and detection timestamps
+- MITRE ATT&CK mappings for supported detections
+- Threshold-based failed-login detection to reduce noisy alerts
 - Alert lookup and status updates
 - Alert status audit history
 - Paginated event and alert search
@@ -82,6 +85,8 @@ The defaults work for local development. Optional environment variables are docu
 - `TETHYSGUARD_DATABASE_PATH`
 - `TETHYSGUARD_CORS_ORIGINS`
 - `TETHYSGUARD_MAX_REQUEST_BODY_BYTES`
+- `TETHYSGUARD_FAILED_LOGIN_THRESHOLD`
+- `TETHYSGUARD_FAILED_LOGIN_WINDOW_MINUTES`
 
 The application reads environment variables directly. It does not automatically load `.env` files yet.
 
@@ -153,12 +158,14 @@ Completed:
 
 ### Phase 4 - Detection engineering
 
-Planned next:
+Completed:
 
 - Explainable rule IDs and metadata
 - Detection evidence and confidence
 - Risk scoring
 - MITRE ATT&CK mappings
 - Threshold-based failed-login detection
+- Multiple rule matches for one event when appropriate
+- Detection tests for malware, port scans, unauthorized access, suspicious authentication, brute force, and critical events
 
 Event correlation, realistic telemetry ingestion, and the React dashboard are planned for later phases.
