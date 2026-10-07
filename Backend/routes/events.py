@@ -11,6 +11,7 @@ from Backend.schemas import (
     Severity,
 )
 from Backend.services import create_security_event, list_events
+from Backend.auth import AdminUser
 from Backend.routes.utils import validate_date_range
 
 
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/api/events", tags=["events"])
 def create_event(
     event: SecurityEventCreate,
     request: Request,
+    user: AdminUser,
 ) -> dict[str, Any]:
     return create_security_event(event, request.app.state.database_path)
 

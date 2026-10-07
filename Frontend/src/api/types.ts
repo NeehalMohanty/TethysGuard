@@ -87,6 +87,7 @@ export interface AlertListParams extends ListParams {
 }
 
 export interface AlertActivity {
+  actor_user_id?: number | null;
   id: number;
   alert_id: number;
   action: "created" | "status_changed" | "assigned" | "note_added";
@@ -101,4 +102,16 @@ export interface AlertTimeline {
   limit: number;
   offset: number;
   activities: AlertActivity[];
+}
+
+export type Role = "viewer" | "analyst" | "admin";
+export interface User {
+  id: number;
+  username: string;
+  role: Role;
+  active: boolean;
+}
+export interface Session {
+  user: User;
+  csrf_token: string;
 }

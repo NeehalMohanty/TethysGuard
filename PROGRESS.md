@@ -14,7 +14,7 @@ Phases 1–5 established the modular API, validation, explainable detections, an
 
 Validation: all 56 tests passed, including 15 new ingestion tests. The only warning is an upstream Starlette/AnyIO deprecation notice.
 
-### Current boundaries
+### Boundaries at Phase 6 completion
 
 - JSON submission only; no background host agent, file watcher, or syslog listener.
 - Arrival-time correlation only; no historical timestamp reconstruction.
@@ -48,7 +48,7 @@ Validation: 73 backend tests and 13 frontend tests; production build and lint pa
 A headless Edge browser check covered assignment, notes, resolution, persistence after reload,
 reopening, and desktop/mobile layout using an isolated temporary database.
 
-### Current boundaries
+### Boundaries at Phase 8 completion (authentication superseded by Phase 9)
 
 - Analyst and assignee names are unverified labels, not authenticated users.
 - This is not a tamper-proof audit system; use locally until authentication and permissions exist.
@@ -57,6 +57,43 @@ reopening, and desktop/mobile layout using an isolated temporary database.
 - A timed-out note submission may have been stored; refresh before retrying.
 - The timeline refreshes after local changes or manually, not via live updates.
 
-Next: Phase 9 authentication and role-based permissions.
-
 Suggested Phase 8 commit: `feat: add analyst investigation workflow`
+
+## Phase 9 — Authentication and role-based permissions
+
+- Added local first-admin bootstrap and password recovery commands with hidden password prompts.
+- Added salted scrypt password hashing without additional dependencies.
+- Added login/logout, password changes, hashed server-side sessions, and 8-hour absolute expiry.
+- Added CSRF tokens, explicit-origin checks, login throttling, no-store API responses, and secret-safe validation errors.
+- Protected data APIs with backend role checks: viewer reads, analyst investigates, admin also imports telemetry/manages accounts.
+- Added admin user creation, role changes, disabling/enabling, last-admin protection, and session revocation.
+- Linked new investigation actions to authenticated user IDs and username snapshots. Legacy labels/notes remain unchanged.
+- Added login, account settings, role-aware investigation controls, and user-management screens.
+- Updated setup, authenticated PowerShell examples, and deployment caveats in README.md.
+
+Validation: 103 backend tests and 23 frontend tests; frontend production build and lint.
+Headless Edge checks covered admin creation/disabling, analyst assignment/notes, viewer restrictions,
+session persistence, direct backend permission rejection, password changes, logout, and mobile layout.
+All checks used temporary databases/accounts; the existing local development database was not modified.
+
+### Setup change
+
+Run `python -m Backend.manage_users bootstrap --username admin` once from the repository root
+with your Python environment active, then enter your own password. No default credentials are provided.
+Use the same database environment configuration for the command and backend.
+Unauthenticated API scripts must now log in and include the session cookie and CSRF token.
+
+### Current boundaries
+
+- Local-account authentication, not MFA/SSO. No email recovery or service-account API keys.
+- Local HTTP is supported; deployment requires HTTPS and `TETHYSGUARD_COOKIE_SECURE=true`.
+- Prefer same-origin frontend/API hosting; strict cookies do not support arbitrary cross-site deployments.
+- Sessions have absolute expiry, not idle expiry. Role changes/disabling/password changes revoke sessions.
+- Login source throttling uses the directly connected IP; a reverse proxy needs a reviewed deployment design.
+- Database access can alter history; audit records are not tamper-proof.
+- Existing ingestion replay/idempotency and last-write-wins investigation limits remain.
+- No new dependency packages and no destructive database rebuilds were introduced.
+
+Next: Phase 10 real-time monitoring.
+
+Suggested Phase 9 commit: `feat: add authentication and role-based access`

@@ -119,7 +119,8 @@ class AlertStatusHistory(APIModel):
 
 
 class AnalystAction(APIModel):
-    actor: str = Field(min_length=1, max_length=100)
+    # Accepted for older clients, but ignored; identity comes from the session.
+    actor: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class AlertAssignmentUpdate(AnalystAction):
@@ -136,6 +137,7 @@ class AlertNoteCreate(AnalystAction):
 
 
 class AlertActivity(APIModel):
+    actor_user_id: int | None = None
     id: int
     alert_id: int
     action: Literal["created", "status_changed", "assigned", "note_added"]

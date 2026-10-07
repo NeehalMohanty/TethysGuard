@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { api } from "../api/client";
-afterEach(() => vi.unstubAllGlobals());
+import { api, clearSession } from "../api/client";
+afterEach(() => { vi.unstubAllGlobals(); clearSession(); });
 it("encodes filters and omits empty parameters", async () => {
   const fetchMock = vi.fn().mockResolvedValue({ok: true, json: async () => ({alerts: [], total: 0})});
   vi.stubGlobal("fetch", fetchMock); await api.alerts({search: "a & b", status: "", offset: 0});
@@ -19,18 +19,42 @@ it("converts structured validation failures into readable errors", async () => {
 it("sends investigation actions and paginated timeline requests", async () => {
   const fetchMock = vi.fn().mockResolvedValue({ok: true, json: async () => ({})});
   vi.stubGlobal("fetch", fetchMock);
-  await api.assignAlert(7, null, "Neehal");
+  await api.assignAlert(7, null);
   expect(fetchMock).toHaveBeenLastCalledWith("/api/alerts/7/assignment", expect.objectContaining({
-    method: "PATCH", body: JSON.stringify({assigned_to: null, actor: "Neehal"}),
+    method: "PATCH", body: JSON.stringify({assigned_to: null}),
   }));
-  await api.addNote(7, "Evidence checked", "Neehal");
+  await api.addNote(7, "Evidence checked");
   expect(fetchMock).toHaveBeenLastCalledWith("/api/alerts/7/notes", expect.objectContaining({
-    method: "POST", body: JSON.stringify({body: "Evidence checked", actor: "Neehal"}),
+    method: "POST", body: JSON.stringify({body: "Evidence checked"}),
   }));
-  await api.updateAlertStatus(7, "resolved", "Neehal", "false_positive");
+  await api.updateAlertStatus(7, "resolved", "false_positive");
   expect(fetchMock).toHaveBeenLastCalledWith("/api/alerts/7", expect.objectContaining({
-    method: "PATCH", body: JSON.stringify({status: "resolved", actor: "Neehal", resolution: "false_positive"}),
+    method: "PATCH", body: JSON.stringify({status: "resolved", resolution: "false_positive"}),
   }));
   await api.timeline(7, 25);
   expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/alerts/7/timeline?limit=25&offset=25");
+});
+
+it("sends cookies and a session CSRF token, and handles empty logout responses", async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ok: true, status: 200, json: async () => ({user: {id: 1}, csrf_token: "session-csrf"})})
+    .mockResolvedValueOnce({ok: true, status: 204});
+  vi.stubGlobal("fetch", fetchMock);
+  await api.me();
+  await api.logout();
+  expect(fetchMock).toHaveBeenLastCalledWith("/api/auth/logout", expect.objectContaining({
+    credentials: "include", headers: expect.objectContaining({"X-CSRF-Token": "session-csrf"}),
+  }));
+});
+
+it("signals session expiry for protected requests, but not bad login credentials", async () => {
+  const listener = vi.fn();
+  window.addEventListener("tethysguard:session-expired", listener);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ok: false, status: 401, json: async () => ({detail: "Unauthorized"})}));
+  try {
+    await expect(api.login("admin", "wrong")).rejects.toThrow();
+    expect(listener).not.toHaveBeenCalled();
+    await expect(api.alerts()).rejects.toThrow();
+    expect(listener).toHaveBeenCalledOnce();
+  } finally { window.removeEventListener("tethysguard:session-expired", listener); }
 });

@@ -10,9 +10,15 @@ import type {
   AlertStatus,
   AlertActivity,
   AlertTimeline,
+  User,
+  Role,
+  Session,
 } from "./types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+let csrfToken = "";
+
+export function clearSession() { csrfToken = ""; }
 
 export class ApiError extends Error {
   constructor(
@@ -38,8 +44,11 @@ function queryString(params: object): string {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      "X-TethysGuard-Request": "1",
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
       ...init?.headers,
     },
   });
@@ -51,12 +60,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep the safe fallback when an upstream response is not JSON.
     }
+    if (response.status === 401 && path !== "/api/auth/login") {
+      clearSession();
+      window.dispatchEvent(new Event("tethysguard:session-expired"));
+    }
     throw new ApiError(message, response.status);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
+async function sessionRequest(path: string, init?: RequestInit) {
+  const session = await request<Session>(path, init);
+  csrfToken = session.csrf_token;
+  return session;
+}
+
 export const api = {
+  me: () => sessionRequest("/api/auth/me"),
+  login: (username: string, password: string) => sessionRequest("/api/auth/login", {
+    method: "POST", body: JSON.stringify({ username, password }),
+  }),
+  logout: async () => { await request<void>("/api/auth/logout", {method: "POST"}); clearSession(); },
+  users: () => request<User[]>("/api/auth/users"),
+  assignees: () => request<User[]>("/api/auth/assignees"),
+  createUser: (username: string, password: string, role: Role) => request<User>("/api/auth/users", {
+    method: "POST", body: JSON.stringify({username, password, role}),
+  }),
+  updateUser: (id: number, role: Role, active: boolean) => request<User>(`/api/auth/users/${id}`, {
+    method: "PATCH", body: JSON.stringify({role, active}),
+  }),
+  changePassword: async (current_password: string, new_password: string) => {
+    await request<void>("/api/auth/password", {method: "POST", body: JSON.stringify({current_password, new_password})});
+    clearSession();
+  },
   dashboard: () => request<DashboardStats>("/api/dashboard/stats"),
   events: (params: EventListParams = {}) =>
     request<PaginatedResponse<SecurityEvent>>(`/api/events${queryString(params)}`),
@@ -65,18 +102,18 @@ export const api = {
   alert: (alertId: number) => request<Alert>(`/api/alerts/${alertId}`),
   alertEvents: (alertId: number) =>
     request<RelatedEventsResponse>(`/api/alerts/${alertId}/events`),
-  updateAlertStatus: (alertId: number, status: AlertStatus, actor?: string, resolution?: "false_positive" | null) =>
+  updateAlertStatus: (alertId: number, status: AlertStatus, resolution?: "false_positive" | null) =>
     request<AlertUpdatedResponse>(`/api/alerts/${alertId}`, {
       method: "PATCH",
-      body: JSON.stringify({ status, actor, resolution }),
+      body: JSON.stringify({ status, resolution }),
     }),
-  assignAlert: (alertId: number, assigned_to: string | null, actor: string) =>
+  assignAlert: (alertId: number, assigned_to: string | null) =>
     request<AlertUpdatedResponse>(`/api/alerts/${alertId}/assignment`, {
-      method: "PATCH", body: JSON.stringify({ assigned_to, actor }),
+      method: "PATCH", body: JSON.stringify({ assigned_to }),
     }),
-  addNote: (alertId: number, body: string, actor: string) =>
+  addNote: (alertId: number, body: string) =>
     request<AlertActivity>(`/api/alerts/${alertId}/notes`, {
-      method: "POST", body: JSON.stringify({ body, actor }),
+      method: "POST", body: JSON.stringify({ body }),
     }),
   timeline: (alertId: number, offset = 0) =>
     request<AlertTimeline>(`/api/alerts/${alertId}/timeline?limit=25&offset=${offset}`),

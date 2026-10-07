@@ -3,19 +3,23 @@ from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from Backend.config import settings
 from Backend.database import initialize_database
-from Backend.routes import alerts, dashboard, events, ingestion, system
+from Backend.routes import alerts, auth, dashboard, events, ingestion, system
+from Backend.auth import current_user, require_roles
 
 
 logger = logging.getLogger(__name__)
 
 
 def create_app(database_path: Path | str | None = None) -> FastAPI:
+    if "*" in settings.cors_origins:
+        raise ValueError("Authenticated deployments require explicit CORS origins, not a wildcard")
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         initialize_database(application.state.database_path)
@@ -38,6 +42,22 @@ def create_app(database_path: Path | str | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, error: RequestValidationError):
+        # Pydantic's default error input can contain a submitted password.
+        return JSONResponse(status_code=422, content={"detail": [
+            {"loc": list(item["loc"]), "msg": item["msg"], "type": item["type"]}
+            for item in error.errors()
+        ]})
+
+    @application.middleware("http")
+    async def private_api_responses(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @application.middleware("http")
     async def limit_request_body(request: Request, call_next):
@@ -79,10 +99,11 @@ def create_app(database_path: Path | str | None = None) -> FastAPI:
         )
 
     application.include_router(system.router)
-    application.include_router(events.router)
-    application.include_router(ingestion.router)
-    application.include_router(alerts.router)
-    application.include_router(dashboard.router)
+    application.include_router(auth.router)
+    application.include_router(events.router, dependencies=[Depends(current_user)])
+    application.include_router(ingestion.router, dependencies=[Depends(require_roles("admin"))])
+    application.include_router(alerts.router, dependencies=[Depends(current_user)])
+    application.include_router(dashboard.router, dependencies=[Depends(current_user)])
 
     return application
 

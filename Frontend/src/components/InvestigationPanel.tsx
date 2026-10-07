@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { Alert, AlertActivity, AlertStatus, AlertTimeline } from "../api/types";
+import type { Alert, AlertActivity, AlertStatus, AlertTimeline, User } from "../api/types";
+import { useAuth } from "../auth/AuthContext";
 import { formatDate, humanize } from "../utils/format";
 import { ErrorState, LoadingState } from "./PageState";
 import { Pagination } from "./Pagination";
@@ -22,7 +23,10 @@ function describe(activity: AlertActivity) {
 }
 
 export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate: (alert: Alert) => void }) {
-  const [actor, setActor] = useState("Local analyst");
+  const { user } = useAuth();
+  const readOnly = !user || user.role === "viewer";
+  const [assignees, setAssignees] = useState<User[]>([]);
+  const [assigneeError, setAssigneeError] = useState("");
   const [assignee, setAssignee] = useState(alert.assigned_to ?? "");
   const [status, setStatus] = useState<WorkflowStatus>(workflowStatus(alert));
   const [note, setNote] = useState("");
@@ -35,6 +39,13 @@ export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate
   const [revision, setRevision] = useState(0);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    if (readOnly) return;
+    let active = true;
+    api.assignees().then(result => { if (active) setAssignees(result); })
+      .catch(() => { if (active) setAssigneeError("Unable to load assignees. Reload the page to retry."); });
+    return () => { active = false; };
+  }, [readOnly]);
 
   useEffect(() => {
     let active = true;
@@ -46,19 +57,20 @@ export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate
   }, [alert.id, offset, revision]);
 
   async function save(kind: "status" | "assignment" | "note") {
+    if (readOnly) return;
     setSaving(kind); setError(""); setNotice("");
     try {
       if (kind === "status") {
         const result = await api.updateAlertStatus(alert.id, status === "false_positive" ? "resolved" : status,
-          actor.trim(), status === "false_positive" ? "false_positive" : null);
+          status === "false_positive" ? "false_positive" : null);
         if (!mounted.current) return;
         onUpdate(result.alert); setStatus(workflowStatus(result.alert)); setNotice("Status saved");
       } else if (kind === "assignment") {
-        const result = await api.assignAlert(alert.id, assignee.trim() || null, actor.trim());
+        const result = await api.assignAlert(alert.id, assignee || null);
         if (!mounted.current) return;
         onUpdate(result.alert); setAssignee(result.alert.assigned_to ?? ""); setNotice("Assignment saved");
       } else {
-        await api.addNote(alert.id, note.trim(), actor.trim());
+        await api.addNote(alert.id, note.trim());
         if (!mounted.current) return;
         setNote(""); setNotice("Note added");
       }
@@ -67,12 +79,13 @@ export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate
     finally { if (mounted.current) setSaving(""); }
   }
 
-  const disabled = Boolean(saving) || !actor.trim();
+  const disabled = Boolean(saving) || readOnly;
   return <>
     <section className="panel detail-panel investigation-panel">
       <h2>Investigation workspace</h2>
-      <p>Analyst names are unverified labels until account sign-in is added. Use locally only.</p>
-      <label>Acting analyst<input maxLength={100} value={actor} disabled={Boolean(saving)} onChange={e => setActor(e.target.value)} /></label>
+      <p>Signed in as {user?.username} · {user?.role}. Actions are recorded against your account.</p>
+      {readOnly && <p>Viewer access is read-only. An analyst or admin can update this investigation.</p>}
+      <fieldset disabled={readOnly}>
       <div className="investigation-controls">
         <div>
           <h3>Investigation status</h3>
@@ -85,13 +98,19 @@ export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate
         </div>
         <div>
           <h3>Alert assignment</h3><p>Assigned to: {alert.assigned_to ?? "Unassigned"}</p>
-          <label>Assignee<input maxLength={100} value={assignee} disabled={Boolean(saving)} placeholder="Leave blank to unassign" onChange={e => setAssignee(e.target.value)} /></label>
+          <label>Assignee<select aria-label="Assignee" value={assignee} disabled={Boolean(saving) || Boolean(assigneeError)} onChange={e => setAssignee(e.target.value)}>
+            <option value="">Unassigned</option>
+            {assignee && !assignees.some(account => account.username === assignee) && <option value={assignee}>{assignee}{readOnly ? "" : " (legacy or unavailable)"}</option>}
+            {assignees.map(account => <option key={account.id} value={account.username}>{account.username}</option>)}
+          </select></label>
+          {assigneeError && <p role="alert">{assigneeError}</p>}
           <button disabled={disabled || (assignee.trim() || null) === alert.assigned_to} onClick={() => void save("assignment")}>{saving === "assignment" ? "Saving…" : "Save assignment"}</button>
         </div>
       </div>
       <label>Investigation note<textarea rows={4} maxLength={4000} value={note} disabled={Boolean(saving)} placeholder="What did you investigate? What evidence supports your conclusion?" onChange={e => setNote(e.target.value)} /></label>
       <p>Notes are permanent in the app. Add a follow-up note to correct an earlier one.</p>
       <button disabled={disabled || !note.trim()} onClick={() => void save("note")}>{saving === "note" ? "Adding…" : "Add note"}</button>
+      </fieldset>
       {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     </section>
     <section className="panel detail-panel investigation-panel">
@@ -100,7 +119,7 @@ export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate
       {timelineError ? <ErrorState message={timelineError} retry={() => setRevision(value => value + 1)} /> : !timeline ? <LoadingState /> : <>
         <ol className="investigation-timeline">{timeline.activities.map(activity => <li key={activity.id}>
           <strong>{humanize(activity.action)}</strong>
-          <small>{activity.actor} · {formatDate(activity.created_at)}</small>
+          <small>{activity.actor}{activity.actor_user_id ? " · Account action" : activity.action !== "created" ? " · Legacy/unverified label" : ""} · {formatDate(activity.created_at)}</small>
           <p>{describe(activity)}</p>
         </li>)}</ol>
         <Pagination limit={timeline.limit} offset={offset} total={timeline.total} onChange={setOffset} />
