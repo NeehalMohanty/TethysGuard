@@ -32,6 +32,43 @@ def database_connection(
 
 def initialize_database(database_path: Path | str | None = None) -> None:
     with database_connection(database_path) as connection:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('admin', 'analyst', 'viewer')),
+                active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+                created_at TEXT NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                csrf_token TEXT NOT NULL,
+                expires_at INTEGER NOT NULL
+            )
+        """)
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                source TEXT NOT NULL,
+                attempted_at INTEGER NOT NULL
+            )
+        """)
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_login_time ON login_attempts(attempted_at)")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS account_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_user_id INTEGER REFERENCES users(id),
+                target_user_id INTEGER REFERENCES users(id),
+                action TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
@@ -171,6 +208,9 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                 status_history_id INTEGER UNIQUE REFERENCES alert_status_history(id)
             )
         """)
+        activity_columns = {row["name"] for row in connection.execute("PRAGMA table_info(alert_activity)")}
+        if "actor_user_id" not in activity_columns:
+            connection.execute("ALTER TABLE alert_activity ADD COLUMN actor_user_id INTEGER REFERENCES users(id)")
         # Preserve pre-Phase-8 history without inventing an analyst identity.
         for row in connection.execute("""
             SELECT h.* FROM alert_status_history h

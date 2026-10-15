@@ -21,8 +21,8 @@ def test_full_investigation_lifecycle(client):
     alert_id = create_alert(client)
     url = f"/api/alerts/{alert_id}"
     assert timeline(client, alert_id)[0]["action"] == "created"
-    assignment = {"actor": " Neehal ", "assigned_to": " Analyst A "}
-    assert client.patch(url + "/assignment", json=assignment).json()["alert"]["assigned_to"] == "Analyst A"
+    assignment = {"actor": " Neehal ", "assigned_to": " analyst-a "}
+    assert client.patch(url + "/assignment", json=assignment).json()["alert"]["assigned_to"] == "analyst-a"
     assert client.patch(url, json={"status": "investigating", "actor": "Neehal"}).status_code == 200
     note = client.post(url + "/notes", json={"actor": "Neehal", "body": " Checked host logs. "})
     assert note.status_code == 201
@@ -32,12 +32,12 @@ def test_full_investigation_lifecycle(client):
     assert client.get("/api/dashboard/stats").json()["alert_status"]["resolved"] == 1
     reopened = client.patch(url, json={"status": "open", "actor": "Neehal"}).json()["alert"]
     assert reopened["resolution"] is None
-    assert reopened["assigned_to"] == "Analyst A"
+    assert reopened["assigned_to"] == "analyst-a"
     activities = timeline(client, alert_id)
     assert [a["action"] for a in activities] == [
         "status_changed", "status_changed", "note_added", "status_changed", "assigned", "created",
     ]
-    assert all(a["actor"] == "Neehal" for a in activities[:-1])
+    assert all(a["actor"] == "neehal" for a in activities[:-1])
     assert len(client.get(url + "/history").json()["history"]) == 3
     # Reinitializing must neither discard notes nor duplicate dual-written status history.
     initialize_database(client.app.state.database_path)
@@ -48,7 +48,7 @@ def test_assignment_noops_unassignment_and_status_noops(client):
     alert_id = create_alert(client)
     url = f"/api/alerts/{alert_id}"
     for _ in range(2):
-        client.patch(url + "/assignment", json={"actor": "A", "assigned_to": "B"})
+        client.patch(url + "/assignment", json={"actor": "A", "assigned_to": "analyst-b"})
     client.patch(url + "/assignment", json={"actor": "A", "assigned_to": " "})
     for _ in range(2):
         client.patch(url, json={"status": "open"})
@@ -130,7 +130,7 @@ def test_audit_failure_rolls_back_status_and_assignment(client):
         """)
     url = f"/api/alerts/{alert_id}"
     assert client.patch(url, json={"status": "investigating"}).status_code == 500
-    assert client.patch(url + "/assignment", json={"actor": "A", "assigned_to": "B"}).status_code == 500
+    assert client.patch(url + "/assignment", json={"actor": "A", "assigned_to": "analyst-b"}).status_code == 500
     assert client.post(url + "/notes", json={"actor": "A", "body": "Note"}).status_code == 500
     alert = client.get(url).json()
     assert alert["status"] == "open"

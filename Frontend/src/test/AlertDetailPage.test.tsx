@@ -4,11 +4,15 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, expect, it, vi } from "vitest";
 import { AlertDetailPage } from "../pages/AlertDetailPage";
 import { api } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import type { Alert } from "../api/types";
-vi.mock("../api/client", () => ({ api: { alert: vi.fn(), alertEvents: vi.fn(), updateAlertStatus: vi.fn(), timeline: vi.fn(), assignAlert: vi.fn(), addNote: vi.fn() } }));
+vi.mock("../auth/AuthContext", () => ({useAuth: vi.fn()}));
+vi.mock("../api/client", () => ({ api: { alert: vi.fn(), alertEvents: vi.fn(), updateAlertStatus: vi.fn(), timeline: vi.fn(), assignAlert: vi.fn(), addNote: vi.fn(), assignees: vi.fn() } }));
 const alert: Alert = { assigned_to: null, resolution: null, id: 1, event_id: 5, title: "Repeated login failures", description: "Five failures", status: "open", severity: "high", rule_id: "TG-AUTH-001", evidence: { count: 5 }, timestamp: "2026-09-20T12:00:00Z", rule_name: "Repeated Failed Logins", category: "authentication", confidence: 90, risk_score: 85, mitre_tactic: "Credential Access", mitre_technique_id: "T1110", mitre_technique_name: "Brute Force", detected_at: null, detection_source: "correlation", related_event_ids: [5] };
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(useAuth).mockReturnValue({user: {id: 1, username: "neehal", role: "analyst", active: true}, loading: false, error: "", login: vi.fn(), logout: vi.fn(), signedOut: vi.fn(), reload: vi.fn()});
+  vi.mocked(api.assignees).mockResolvedValue([{id: 1, username: "Neehal", role: "analyst", active: true}]);
   vi.mocked(api.alert).mockResolvedValue(alert);
   vi.mocked(api.alertEvents).mockResolvedValue({count: 0, events: []});
   vi.mocked(api.timeline).mockResolvedValue({count: 0, total: 0, limit: 25, offset: 0, activities: []});
@@ -22,7 +26,7 @@ it("loads investigation evidence and saves analyst status", async () => {
   await user.selectOptions(screen.getByLabelText("Investigation status"), "investigating");
   await user.click(screen.getByRole("button", {name: "Save status"}));
   await screen.findByText("Status saved");
-  expect(api.updateAlertStatus).toHaveBeenCalledWith(1, "investigating", "Local analyst", null);
+  expect(api.updateAlertStatus).toHaveBeenCalledWith(1, "investigating", null);
 });
 it("preserves status and allows retry after a failed save", async () => {
   vi.mocked(api.updateAlertStatus).mockRejectedValue(new Error("Server unavailable"));
@@ -43,10 +47,11 @@ it("saves assignment and clears only successfully submitted notes", async () => 
     id: 1, alert_id: 1, action: "note_added", actor: "Local analyst", details: {body: "Checked the host"}, created_at: alert.timestamp,
   });
   mount(); const user = userEvent.setup(); await screen.findByText("Repeated login failures");
-  await user.type(screen.getByLabelText("Assignee"), "Neehal");
+  await screen.findByRole("option", {name: "Neehal"});
+  await user.selectOptions(screen.getByLabelText("Assignee"), "Neehal");
   await user.click(screen.getByRole("button", {name: "Save assignment"}));
   await screen.findByText("Assigned to: Neehal");
-  expect(api.assignAlert).toHaveBeenCalledWith(1, "Neehal", "Local analyst");
+  expect(api.assignAlert).toHaveBeenCalledWith(1, "Neehal");
   await user.type(screen.getByLabelText("Investigation note"), "Checked the host");
   await user.click(screen.getByRole("button", {name: "Add note"}));
   await screen.findByText("Try again");
@@ -62,7 +67,7 @@ it("records false positives as resolved with a separate resolution", async () =>
   await user.selectOptions(screen.getByLabelText("Investigation status"), "false_positive");
   await user.click(screen.getByRole("button", {name: "Save status"}));
   await screen.findByText("Resolution: False positive");
-  expect(api.updateAlertStatus).toHaveBeenCalledWith(1, "resolved", "Local analyst", "false_positive");
+  expect(api.updateAlertStatus).toHaveBeenCalledWith(1, "resolved", "false_positive");
 });
 
 it("renders note content as text, never HTML", async () => {
@@ -74,7 +79,7 @@ it("renders note content as text, never HTML", async () => {
   expect(document.querySelector("img")).toBeNull();
 });
 
-it("retries a failed timeline request and disables blank analyst actions", async () => {
+it("retries a failed timeline request", async () => {
   vi.mocked(api.timeline).mockRejectedValueOnce(new Error("Timeline unavailable")).mockResolvedValue({
     count: 0, total: 0, limit: 25, offset: 0, activities: [],
   });
@@ -82,9 +87,7 @@ it("retries a failed timeline request and disables blank analyst actions", async
   await screen.findByText("Timeline unavailable");
   await user.click(screen.getByRole("button", {name: "Refresh timeline"}));
   await waitFor(() => expect(screen.queryByText("Timeline unavailable")).not.toBeInTheDocument());
-  await user.clear(screen.getByLabelText("Acting analyst"));
-  await user.type(screen.getByLabelText("Investigation note"), "Test note");
-  expect(screen.getByRole("button", {name: "Add note"})).toBeDisabled();
+  expect(screen.queryByLabelText("Acting analyst")).not.toBeInTheDocument();
 });
 
 it("pages through older timeline entries", async () => {
@@ -106,10 +109,20 @@ it("pages through older timeline entries", async () => {
 it("keeps an unsaved assignment visible after a failed request", async () => {
   vi.mocked(api.assignAlert).mockRejectedValue(new Error("Assignment unavailable"));
   mount(); const user = userEvent.setup(); await screen.findByText("Repeated login failures");
-  await user.type(screen.getByLabelText("Assignee"), "Neehal");
+  await screen.findByRole("option", {name: "Neehal"});
+  await user.selectOptions(screen.getByLabelText("Assignee"), "Neehal");
   await user.click(screen.getByRole("button", {name: "Save assignment"}));
   await screen.findByText("Assignment unavailable");
   expect(screen.getByText("Assigned to: Unassigned")).toBeInTheDocument();
   expect(screen.getByLabelText("Assignee")).toHaveValue("Neehal");
   expect(screen.getByRole("button", {name: "Save assignment"})).toBeEnabled();
+});
+
+it("prevents viewers from editing an investigation", async () => {
+  vi.mocked(useAuth).mockReturnValue({...useAuth(), user: {id: 2, username: "viewer", role: "viewer", active: true}});
+  mount(); await screen.findByText("Repeated login failures");
+  expect(screen.getByRole("button", {name: "Add note"})).toBeDisabled();
+  expect(screen.getByRole("button", {name: "Save status"})).toBeDisabled();
+  expect(screen.getByLabelText("Assignee")).toBeDisabled();
+  expect(api.assignees).not.toHaveBeenCalled();
 });

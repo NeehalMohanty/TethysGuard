@@ -478,6 +478,7 @@ def update_alert_status(
     database_path: Path | str,
     *,
     actor: str = "Local analyst",
+    actor_user_id: int | None = None,
     resolution: str | None = None,
 ) -> dict[str, Any] | None:
     with database_connection(database_path) as connection:
@@ -517,7 +518,7 @@ def update_alert_status(
             record_activity(connection, alert_id, "status_changed", actor, {
                 "previous_status": previous_status, "new_status": new_status.value,
                 "previous_resolution": existing_alert["resolution"], "resolution": resolution,
-            }, changed_at, history_id)
+            }, changed_at, history_id, actor_user_id)
 
         updated_alert = connection.execute(
             "SELECT * FROM alerts WHERE id = ?",

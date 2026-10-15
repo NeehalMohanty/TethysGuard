@@ -32,6 +32,7 @@ def _get_cors_origins() -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class Settings:
+    session_cookie_secure: bool = _environment("TETHYSGUARD_COOKIE_SECURE", "false").lower() == "true"
     app_name: str = _environment("TETHYSGUARD_APP_NAME", "TethysGuard API")
     app_version: str = _environment("TETHYSGUARD_APP_VERSION", "0.6.0")
     app_description: str = "Cybersecurity monitoring and threat detection platform"

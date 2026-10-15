@@ -26,6 +26,7 @@ from Backend.services import (
 )
 from Backend.routes.utils import validate_date_range
 from Backend.investigation import add_note, assign_alert, list_timeline
+from Backend.auth import AnalystUser
 
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
@@ -106,12 +107,14 @@ def patch_alert_status(
     alert_id: int,
     update: AlertStatusUpdate,
     request: Request,
+    user: AnalystUser,
 ) -> dict[str, Any]:
     alert = update_alert_status(
         alert_id,
         update.status,
         request.app.state.database_path,
-        actor=update.actor,
+        actor=user["username"],
+        actor_user_id=user["id"],
         resolution=update.resolution,
     )
     if alert is None:
@@ -127,16 +130,21 @@ def patch_alert_status(
 
 
 @router.patch("/{alert_id}/assignment", response_model=AlertUpdatedResponse)
-def patch_assignment(alert_id: int, update: AlertAssignmentUpdate, request: Request):
+def patch_assignment(alert_id: int, update: AlertAssignmentUpdate, request: Request, user: AnalystUser):
     path = request.app.state.database_path
-    if not assign_alert(alert_id, update.assigned_to, update.actor, path):
+    try:
+        assigned = assign_alert(alert_id, update.assigned_to, user["username"], path, actor_user_id=user["id"])
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if not assigned:
         raise HTTPException(status_code=404, detail="Alert not found")
     return {"message": "Assignment saved", "alert": get_alert_by_id(alert_id, path)}
 
 
 @router.post("/{alert_id}/notes", response_model=AlertActivity, status_code=201)
-def post_note(alert_id: int, note: AlertNoteCreate, request: Request):
-    activity = add_note(alert_id, note.body, note.actor, request.app.state.database_path)
+def post_note(alert_id: int, note: AlertNoteCreate, request: Request, user: AnalystUser):
+    activity = add_note(alert_id, note.body, user["username"], request.app.state.database_path,
+                        actor_user_id=user["id"])
     if activity is None:
         raise HTTPException(status_code=404, detail="Alert not found")
     return activity
