@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLiveRefresh } from "../live/useLiveRefresh";
 import { Activity, BellRing, CircleAlert, Radar, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
@@ -35,8 +36,10 @@ const severityColors: Record<string, string> = {
 export function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
+  const requestId = useRef(0);
 
   const load = useCallback(async () => {
+    const current = ++requestId.current;
     setError("");
     try {
       const [stats, alertsPage, eventsPage] = await Promise.all([
@@ -44,19 +47,26 @@ export function DashboardPage() {
         api.alerts({ limit: 5, sort_by: "timestamp", sort_order: "desc" }),
         api.events({ limit: 5, sort_by: "timestamp", sort_order: "desc" }),
       ]);
+      if (current !== requestId.current) return;
       setData({
         stats,
         alerts: alertsPage.alerts ?? [],
         events: eventsPage.events ?? [],
       });
     } catch (reason) {
+      if (current !== requestId.current) return;
       setError(reason instanceof Error ? reason.message : "Unable to load dashboard");
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const requests = requestId;
+    void load();
+    return () => { ++requests.current; };
+  }, [load]);
+  useLiveRefresh(load);
 
-  if (error) return <ErrorState message={error} retry={() => void load()} />;
+  if (error && !data) return <ErrorState message={error} retry={() => void load()} />;
   if (!data) return <LoadingState label="Building your SOC overview" />;
 
   const severityData = Object.entries(data.stats.severity).map(([name, value]) => ({
@@ -71,6 +81,7 @@ export function DashboardPage() {
 
   return (
     <div className="page">
+      {error && <p role="alert">Refresh failed: {error}. Displaying previously loaded data.</p>}
       <header className="page-header">
         <div>
           <p className="eyebrow">Command center</p>

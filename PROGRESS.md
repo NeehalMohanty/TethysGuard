@@ -94,6 +94,35 @@ Unauthenticated API scripts must now log in and include the session cookie and C
 - Existing ingestion replay/idempotency and last-write-wins investigation limits remain.
 - No new dependency packages and no destructive database rebuilds were introduced.
 
-Next: Phase 10 real-time monitoring.
+Phase 10 implementation is recorded below.
 
 Suggested Phase 9 commit: `feat: add authentication and role-based access`
+
+## Phase 10 — Live SOC monitoring
+
+- Added cookie-authenticated `/api/live/stream` with session checks every two seconds.
+- Added a durable SQLite revision counter and transaction-bound change triggers without rebuilding tables.
+- Live invalidations refresh dashboard totals/charts, event/alert lists, related evidence, and investigation timelines.
+- Added one connection per signed-in tab, heartbeats, a silence watchdog, retry backoff, offline handling, and reconnect resync.
+- Added Live / Reconnecting / Offline status and a manual reconnect control.
+- Preserved active filters, pagination, note drafts, and unsaved workflow selections through live updates.
+- Added limits of four streams per account and 32 per process, plus disconnect/expiry cleanup.
+- Updated README with endpoint documentation, manual checks, and deployment limitations.
+
+Validation: 116 backend tests and 34 frontend tests; production build and lint pass.
+Headless Edge checks used synthetic accounts and a temporary database to verify live overview updates,
+cross-tab status/timeline changes with retained drafts, offline catch-up, viewer streaming,
+account-disable revocation, and cross-tab logout. The existing development database was not modified.
+
+### Boundaries at Phase 10 completion
+
+- Near-real-time invalidation every two seconds, not a durable notification/replay service.
+- SQLite polling per stream is appropriate for the current small portfolio setup, not high-scale deployment.
+- Connections are limited per process, not globally across workers; reverse-proxy streaming settings still need deployment review.
+- Current permissions remain enforced through REST; no credentials or security-event payloads are sent in stream URLs/notifications.
+- Concurrent saves remain last-write-wins. Drafts are not persisted across reloads or sign-out.
+- Account management screens still require manual reload after remote account changes.
+
+Next: Phase 11 advanced risk scoring.
+
+Suggested Phase 10 commit: `feat: add authenticated live SOC monitoring`

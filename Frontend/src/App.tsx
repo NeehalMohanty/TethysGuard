@@ -10,6 +10,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { UsersPage } from "./pages/UsersPage";
 import { AccountPage } from "./pages/AccountPage";
 import { ErrorState } from "./components/PageState";
+import { LiveProvider } from "./live/LiveProvider";
 
 export default function App() {
   return <AuthProvider><AuthenticatedApp /></AuthProvider>;
@@ -21,7 +22,7 @@ function AuthenticatedApp() {
   if (error) return <ErrorState message={error} retry={reload} />;
   if (!user) return <LoginPage />;
   return (
-    <Routes>
+    <LiveProvider key={user.id}><Routes>
       <Route element={<Layout />}>
         <Route index element={<Suspense fallback={<LoadingState />}><DashboardPage /></Suspense>} />
         <Route path="alerts" element={<AlertsPage />} />
@@ -31,7 +32,7 @@ function AuthenticatedApp() {
         <Route path="account" element={<AccountPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
-    </Routes>
+    </Routes></LiveProvider>
   );
 }
 import { lazy, Suspense } from "react";

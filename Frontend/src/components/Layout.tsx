@@ -8,6 +8,7 @@ import {
 import { NavLink, Outlet } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { useLive } from "../live/LiveContext";
 
 const navigation = [
   { to: "/", label: "Overview", icon: Gauge, end: true },
@@ -16,6 +17,7 @@ const navigation = [
 ];
 
 export function Layout() {
+  const live = useLive();
   const { user, logout } = useAuth();
   const [logoutError, setLogoutError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,10 +57,11 @@ export function Layout() {
           {logoutError && <p role="alert">{logoutError}</p>}
         </div>
         <div className="system-status">
-          <span className="status-dot" />
+          <span className="status-dot" style={{ background: live.status === "Live" ? "#4dd4ac" : "#ff9f43" }} />
           <div>
             <strong>Local SOC workspace</strong>
-            <small>Manual refresh</small>
+            <small role="status">Live updates: {live.status}</small>
+            {live.status !== "Live" && <button onClick={live.reconnect}>Reconnect live updates</button>}
           </div>
           <RadioTower size={18} />
         </div>

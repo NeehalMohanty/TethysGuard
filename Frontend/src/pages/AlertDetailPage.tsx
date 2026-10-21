@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLiveRefresh } from "../live/useLiveRefresh";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Alert, RelatedSecurityEvent } from "../api/types";
@@ -13,22 +14,35 @@ export function AlertDetailPage() {
   const [alert, setAlert] = useState<Alert | null>(null);
   const [events, setEvents] = useState<RelatedSecurityEvent[]>([]);
   const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    setAlert(null); setError("");
+  const requestId = useRef(0);
+  const load = useCallback(async (background = false) => {
+    const current = ++requestId.current;
+    if (!background) setAlert(null);
+    setError("");
     if (!Number.isSafeInteger(id) || id < 1) { setError("Invalid alert ID"); return; }
-    Promise.all([api.alert(id), api.alertEvents(id)]).then(([item, related]) => {
-      if (active) { setAlert(item); setEvents(related.events); }
-    }).catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "Unable to load alert"); });
-    return () => { active = false; };
+    try {
+      const [item, related] = await Promise.all([api.alert(id), api.alertEvents(id)]);
+      if (current === requestId.current) { setAlert(item); setEvents(related.events); }
+    } catch (reason) {
+      if (current === requestId.current) setError(reason instanceof Error ? reason.message : "Unable to load alert");
+    }
   }, [id]);
+  useEffect(() => {
+    const requests = requestId;
+    void load();
+    return () => { ++requests.current; };
+  }, [load]);
+  useLiveRefresh(() => load(true));
 
-  if (error) return <><Link to="/alerts">Back to alerts</Link><ErrorState message={error} /></>;
+  if (error && !alert) return <><Link to="/alerts">Back to alerts</Link><ErrorState message={error} /></>;
   if (!alert) return <LoadingState />;
   return <div className="page">
+    {error && <p role="alert">Refresh failed: {error}. Your draft is preserved. <button onClick={() => void load(true)}>Retry refresh</button></p>}
     <Link to="/alerts">← Back to alerts</Link>
     <header className="page-header"><div><p className="eyebrow">Investigation · Alert {alert.id}</p><h1>{alert.title}</h1><p>{alert.description}</p></div><SeverityBadge severity={alert.severity} /></header>
-    <InvestigationPanel key={alert.id} alert={alert} onUpdate={setAlert} />
+    <InvestigationPanel key={alert.id} alert={alert} onUpdate={updated => {
+      ++requestId.current; setAlert(updated);
+    }} />
     <section className="panel detail-panel"><h2>Detection context</h2><dl className="detail-grid">
       <div><dt>Rule</dt><dd>{alert.rule_id ?? "Legacy"} · {alert.rule_name ?? "Unavailable"}</dd></div>
       <div><dt>Source</dt><dd>{humanize(alert.detection_source)}</dd></div>

@@ -6,6 +6,7 @@ import { AlertDetailPage } from "../pages/AlertDetailPage";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { Alert } from "../api/types";
+import { LiveContext } from "../live/LiveContext";
 vi.mock("../auth/AuthContext", () => ({useAuth: vi.fn()}));
 vi.mock("../api/client", () => ({ api: { alert: vi.fn(), alertEvents: vi.fn(), updateAlertStatus: vi.fn(), timeline: vi.fn(), assignAlert: vi.fn(), addNote: vi.fn(), assignees: vi.fn() } }));
 const alert: Alert = { assigned_to: null, resolution: null, id: 1, event_id: 5, title: "Repeated login failures", description: "Five failures", status: "open", severity: "high", rule_id: "TG-AUTH-001", evidence: { count: 5 }, timestamp: "2026-09-20T12:00:00Z", rule_name: "Repeated Failed Logins", category: "authentication", confidence: 90, risk_score: 85, mitre_tactic: "Credential Access", mitre_technique_id: "T1110", mitre_technique_name: "Brute Force", detected_at: null, detection_source: "correlation", related_event_ids: [5] };
@@ -18,6 +19,52 @@ beforeEach(() => {
   vi.mocked(api.timeline).mockResolvedValue({count: 0, total: 0, limit: 25, offset: 0, activities: []});
 });
 function mount() { render(<MemoryRouter initialEntries={["/alerts/1"]}><Routes><Route path="/alerts/:alertId" element={<AlertDetailPage />} /></Routes></MemoryRouter>); }
+function livePage(revision: number) {
+  return <LiveContext.Provider value={{revision, status: "Live", reconnect: vi.fn()}}>
+    <MemoryRouter initialEntries={["/alerts/1"]}><Routes><Route path="/alerts/:alertId" element={<AlertDetailPage />} /></Routes></MemoryRouter>
+  </LiveContext.Provider>;
+}
+
+it("refreshes remote status and keeps a note draft during live updates and failures", async () => {
+  const view = render(livePage(0)); const user = userEvent.setup();
+  await screen.findByText("Repeated login failures");
+  await user.type(screen.getByLabelText("Investigation note"), "Unfinished evidence notes");
+  vi.mocked(api.alert).mockResolvedValue({...alert, status: "investigating"});
+  view.rerender(livePage(1));
+  await waitFor(() => expect(screen.getByLabelText("Investigation status")).toHaveValue("investigating"));
+  expect(screen.getByLabelText("Investigation note")).toHaveValue("Unfinished evidence notes");
+  vi.mocked(api.alert).mockRejectedValue(new Error("Connection lost"));
+  view.rerender(livePage(2));
+  await screen.findByText(/Refresh failed/);
+  expect(screen.getByLabelText("Investigation note")).toHaveValue("Unfinished evidence notes");
+});
+
+it("preserves unsaved selections but can reset them to the newest server state", async () => {
+  const view = render(livePage(0)); const user = userEvent.setup();
+  await screen.findByRole("option", {name: "Neehal"});
+  await user.selectOptions(screen.getByLabelText("Assignee"), "Neehal");
+  await user.selectOptions(screen.getByLabelText("Investigation status"), "false_positive");
+  vi.mocked(api.alert).mockResolvedValue({...alert, status: "investigating"});
+  view.rerender(livePage(1));
+  await waitFor(() => expect(api.alert).toHaveBeenCalledTimes(2));
+  expect(screen.getByLabelText("Assignee")).toHaveValue("Neehal");
+  expect(screen.getByLabelText("Investigation status")).toHaveValue("false_positive");
+  await user.click(screen.getByRole("button", {name: "Reset selections"}));
+  expect(screen.getByLabelText("Assignee")).toHaveValue("");
+  expect(screen.getByLabelText("Investigation status")).toHaveValue("investigating");
+});
+
+it("refreshes the current timeline page without moving back to the newest page", async () => {
+  vi.mocked(api.timeline).mockImplementation(async (_id, offset = 0) => ({
+    count: 0, total: 26, limit: 25, offset, activities: [],
+  }));
+  const view = render(livePage(0)); const user = userEvent.setup();
+  await screen.findByRole("button", {name: "Next page"});
+  await user.click(screen.getByRole("button", {name: "Next page"}));
+  view.rerender(livePage(1));
+  await waitFor(() => expect(api.timeline).toHaveBeenLastCalledWith(1, 25));
+  expect(screen.getByText("26–26 of 26")).toBeInTheDocument();
+});
 it("loads investigation evidence and saves analyst status", async () => {
   vi.mocked(api.updateAlertStatus).mockResolvedValue({message: "Saved", alert: {...alert, status: "investigating"}});
   mount(); const user = userEvent.setup();

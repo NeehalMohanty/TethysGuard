@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { Alert, AlertActivity, AlertStatus, AlertTimeline, User } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { useLive } from "../live/LiveContext";
 import { formatDate, humanize } from "../utils/format";
 import { ErrorState, LoadingState } from "./PageState";
 import { Pagination } from "./Pagination";
@@ -24,11 +25,14 @@ function describe(activity: AlertActivity) {
 
 export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate: (alert: Alert) => void }) {
   const { user } = useAuth();
+  const { revision: liveRevision } = useLive();
   const readOnly = !user || user.role === "viewer";
   const [assignees, setAssignees] = useState<User[]>([]);
   const [assigneeError, setAssigneeError] = useState("");
-  const [assignee, setAssignee] = useState(alert.assigned_to ?? "");
-  const [status, setStatus] = useState<WorkflowStatus>(workflowStatus(alert));
+  const [assigneeDraft, setAssignee] = useState<string | null>(null);
+  const [statusDraft, setStatus] = useState<WorkflowStatus | null>(null);
+  const assignee = assigneeDraft ?? alert.assigned_to ?? "";
+  const status = statusDraft ?? workflowStatus(alert);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
@@ -49,12 +53,12 @@ export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate
 
   useEffect(() => {
     let active = true;
-    setTimeline(null); setTimelineError("");
+    setTimelineError("");
     api.timeline(alert.id, offset).then(result => {
       if (active) setTimeline(result);
     }).catch((reason: unknown) => { if (active) setTimelineError(message(reason)); });
     return () => { active = false; };
-  }, [alert.id, offset, revision]);
+  }, [alert.id, offset, revision, liveRevision]);
 
   async function save(kind: "status" | "assignment" | "note") {
     if (readOnly) return;
@@ -64,11 +68,11 @@ export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate
         const result = await api.updateAlertStatus(alert.id, status === "false_positive" ? "resolved" : status,
           status === "false_positive" ? "false_positive" : null);
         if (!mounted.current) return;
-        onUpdate(result.alert); setStatus(workflowStatus(result.alert)); setNotice("Status saved");
+        onUpdate(result.alert); setStatus(null); setNotice("Status saved");
       } else if (kind === "assignment") {
         const result = await api.assignAlert(alert.id, assignee || null);
         if (!mounted.current) return;
-        onUpdate(result.alert); setAssignee(result.alert.assigned_to ?? ""); setNotice("Assignment saved");
+        onUpdate(result.alert); setAssignee(null); setNotice("Assignment saved");
       } else {
         await api.addNote(alert.id, note.trim());
         if (!mounted.current) return;
@@ -86,6 +90,7 @@ export function InvestigationPanel({ alert, onUpdate }: { alert: Alert; onUpdate
       <p>Signed in as {user?.username} · {user?.role}. Actions are recorded against your account.</p>
       {readOnly && <p>Viewer access is read-only. An analyst or admin can update this investigation.</p>}
       <fieldset disabled={readOnly}>
+      {(statusDraft !== null || assigneeDraft !== null) && <p>Unsaved selections are preserved during live updates. Review the current status and owner before saving. <button type="button" disabled={Boolean(saving)} onClick={() => { setStatus(null); setAssignee(null); }}>Reset selections</button></p>}
       <div className="investigation-controls">
         <div>
           <h3>Investigation status</h3>
