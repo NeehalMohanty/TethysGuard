@@ -12,6 +12,7 @@ from Backend.config import settings
 from Backend.database import initialize_database
 from Backend.routes import alerts, auth, dashboard, events, ingestion, system
 from Backend.auth import current_user, require_roles
+from Backend.live import LiveConnections, router as live_router
 
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ def create_app(database_path: Path | str | None = None) -> FastAPI:
     application.state.database_path = (
         Path(database_path) if database_path is not None else settings.database_path
     )
+    application.state.live_connections = LiveConnections()
 
     application.add_middleware(
         CORSMiddleware,
@@ -100,6 +102,7 @@ def create_app(database_path: Path | str | None = None) -> FastAPI:
 
     application.include_router(system.router)
     application.include_router(auth.router)
+    application.include_router(live_router)
     application.include_router(events.router, dependencies=[Depends(current_user)])
     application.include_router(ingestion.router, dependencies=[Depends(require_roles("admin"))])
     application.include_router(alerts.router, dependencies=[Depends(current_user)])

@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { useLiveRefresh } from "../live/useLiveRefresh";
 import type { Alert, AlertListParams } from "../api/types";
 import { SeverityBadge, StatusBadge } from "../components/Badges";
 import { EmptyState, ErrorState, LoadingState } from "../components/PageState";
@@ -20,9 +21,10 @@ export function AlertsPage() {
   const [error, setError] = useState("");
   const requestId = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (background = false) => {
     const current = ++requestId.current;
-    setLoading(true); setError("");
+    if (!background) setLoading(true);
+    setError("");
     try {
       const page = await api.alerts({ ...filters, limit: LIMIT, offset });
       if (current !== requestId.current) return;
@@ -34,10 +36,11 @@ export function AlertsPage() {
   }, [filters, offset]);
 
   useEffect(() => {
+    const requests = requestId;
     void load();
-    const current = requestId.current;
-    return () => { requestId.current = current + 1; };
+    return () => { ++requests.current; };
   }, [load]);
+  useLiveRefresh(() => load(true));
 
   function submitSearch(event: FormEvent) {
     event.preventDefault(); setOffset(0); setFilters((value) => ({ ...value, search: draftSearch.trim() }));

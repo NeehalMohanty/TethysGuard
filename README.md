@@ -27,6 +27,7 @@ TethysGuard is a cybersecurity monitoring and threat-detection platform built as
 - Local account login/logout, password changes, and revocable server-side sessions
 - Viewer, analyst, and admin permissions enforced by the API
 - Admin account creation, role changes, and disabling; account-linked investigation history
+- Authenticated live monitoring with reconnect/resync and draft-safe investigation refresh
 
 ## Project structure
 
@@ -41,6 +42,7 @@ TethysGuard/
 |   |-- detection.py   # Detection rules
 |   |-- ingestion.py   # Telemetry adapters and batch processing
 |   |-- investigation.py # Assignment, notes, and activity history
+|   |-- live.py        # Authenticated SSE notifications and bounded connections
 |   |-- main.py        # FastAPI application setup
 |   |-- manage_users.py # Local first-admin bootstrap and password recovery
 |   |-- schemas.py     # Request and response models
@@ -155,6 +157,7 @@ Existing installations retain access to their original database: if `Backend/tet
 | `POST` | `/api/alerts/{alert_id}/notes` | Append an analyst note |
 | `GET` | `/api/alerts/{alert_id}/timeline` | Retrieve paginated investigation activity |
 | `GET` | `/api/dashboard/stats` | Retrieve dashboard statistics |
+| `GET` | `/api/live/stream` | Authenticated SSE invalidations (all three roles) |
 | `POST` | `/api/auth/login` | Sign in and set the session cookie |
 | `GET` | `/api/auth/me` | Current account and session CSRF token |
 | `POST` | `/api/auth/logout` | Revoke the current session |
@@ -288,7 +291,16 @@ See [PROGRESS.md](PROGRESS.md) for ingestion limitations and development progres
 - Backend role enforcement, admin account management, and account-linked investigation actions
 - Role-aware frontend, session restoration/expiry handling, and security regression tests
 
-Next: Phase 10 real-time monitoring.
+### Phase 10 - Live SOC monitoring
+
+- Cookie-authenticated server-sent events (SSE) for live dashboard, event, alert, and timeline updates
+- Transactional SQLite revision tracking, including grouped evidence and partial batch ingestion
+- Live / Reconnecting / Offline indicator, heartbeat watchdog, bounded retry, and reconnect resync
+- Session revalidation while connected; expiry, logout, password resets, and account changes revoke access
+- Filters, pagination, note drafts, and unsaved workflow selections survive background refreshes
+- Regression coverage for delivery, rollback, permissions, reconnects, cleanup, and draft preservation
+
+Next: Phase 11 advanced risk scoring.
 
 ## Run the SOC dashboard
 
@@ -305,6 +317,7 @@ Sign in with the admin account you created. Use **Manage users** to add analyst/
 The frontend reads real backend data. An empty database shows empty states; use the SSH sample below to add demo activity.
 Open an alert, change its status, and click **Save status** to persist the change and record the backend audit history.
 Search and filter controls reset pagination. The Overview refresh button reloads the totals and recent activity.
+Live refreshes preserve the current filters and page; they do not reset pagination.
 
 ```powershell
 npm run build
@@ -319,6 +332,55 @@ origin in the CORS allowlist; wildcard origins are rejected. SameSite=Strict req
 frontend/backend hosts (do not mix localhost and 127.0.0.1 for direct API URLs).
 For HTTPS, set `TETHYSGUARD_COOKIE_SECURE=true`; local HTTP defaults are not suitable for deployment.
 Authentication is implemented, but this is still a local portfolio app, not a production-hardened SOC.
+
+## Live monitoring: how it works and how to try it
+
+After sign-in, each tab opens one cookie-authenticated `GET /api/live/stream` connection.
+The backend checks a small SQLite revision counter and the current session every two seconds.
+Database triggers increment that counter in the same transaction as event, alert, related-evidence,
+and investigation-activity writes. Failed transactions roll back the counter too.
+Only a revision notification is streamed: pages retrieve fresh records through the existing authorized REST APIs.
+This is near-real-time monitoring, normally a few seconds behind a committed change, not a zero-latency feed.
+
+The sidebar shows **Live**, **Reconnecting**, or **Offline**. Heartbeats arrive roughly every 15–16 seconds;
+a 30-second silence triggers reconnection. Retry delay grows from 2 seconds to a 30-second maximum.
+Offline means updates are unavailable, not that the saved records have been deleted; retries continue when online.
+Every new connection sends a resync notification, so changes made during a disconnect are fetched from storage.
+Use **Reconnect live updates** to retry immediately.
+
+To test manually:
+
+1. Start the backend and frontend with the commands above, sign in, and wait for **Live updates: Live**.
+2. Keep Overview open and import the synthetic telemetry sample below. Totals and recent activity should update without reloading.
+3. Open an alert in two tabs. Type an unfinished note in one; save a status change or note in the other.
+   The first tab should update its current status/timeline while keeping the unfinished note.
+4. Disconnect/reconnect the browser network (or restart the backend). Check the connection indicator and automatic catch-up.
+5. Sign out in one tab. Other tabs using that session should return to sign-in within a polling interval on a healthy connection.
+
+Unsaved status/assignee selections are kept until saved or **Reset selections** is clicked.
+The displayed current status and owner still update. Review them before saving: concurrent edits remain last-write-wins.
+Drafts live in browser memory, not persistent storage, and are intentionally cleared on sign-out/session expiry.
+
+### Live monitoring boundaries
+
+- No new dependency packages. Startup adds one revision table and triggers; existing records are preserved.
+- Streams require a valid active account; the server rechecks the session on every sample.
+  Session cookies stay HttpOnly, and credentials are never added to stream URLs.
+- Limits are 4 streams per account and 32 total **per backend process**; excess connections receive HTTP 429.
+  Close extra tabs if the limit is reached. Proxy/browser connection limits can be lower.
+- Processes reading the same SQLite file see the same committed revisions. Each stream performs its own
+  two-second read; this is for a small portfolio deployment, not a distributed high-volume event bus.
+- This is invalidation/resync, not an event replay archive. There is no SSE payload history or `Last-Event-ID` replay;
+  existing stored event and investigation history remains the source of truth.
+- Reverse proxies must allow long-lived responses, disable buffering/compression for this endpoint,
+  and use idle timeouts longer than the heartbeat interval. The response sends `X-Accel-Buffering: no`;
+  verify the actual proxy configuration before deploying.
+- The indicator describes the notification connection. A REST refresh failure is shown separately;
+  retained overview/investigation data may be stale until a retry succeeds.
+- Account management screens are not live-synchronized; reload them after another admin changes accounts.
+
+The transport uses browser [EventSource/SSE](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
+and Starlette's [streaming responses](https://starlette.dev/responses/).
 
 ## Try an investigation
 

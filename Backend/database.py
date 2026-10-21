@@ -293,6 +293,25 @@ def initialize_database(database_path: Path | str | None = None) -> None:
         for statement in triggers:
             connection.execute(statement)
 
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS live_revision (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                revision INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        connection.execute("INSERT OR IGNORE INTO live_revision (id, revision) VALUES (1, 0)")
+        # These identifiers are a fixed internal allowlist, never request data.
+        # Trigger increments roll back with failed writes, including batch/event failures.
+        for table in ("events", "alerts", "alert_events", "alert_activity"):
+            for operation in ("INSERT", "UPDATE", "DELETE"):
+                connection.execute(f"""
+                    CREATE TRIGGER IF NOT EXISTS live_{table}_{operation.lower()}
+                    AFTER {operation} ON {table}
+                    BEGIN
+                        UPDATE live_revision SET revision = revision + 1 WHERE id = 1;
+                    END
+                """)
+
 
 def database_is_available(database_path: Path | str | None = None) -> bool:
     try:
